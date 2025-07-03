@@ -1,6 +1,6 @@
 # Visual Comparison of the Draft Delegated Act on Data Access (DDA) vs. the Adopted Delegated Act (DA)
 
-**👉 [Click here to view the comparison](https://dsa40collaboratory.eu/wp-content/uploads/2025/07/compare_DDA_DA.html)**
+**👉 [Click here to view the comparison](https://dsa40collaboratory.eu/wp-content/uploads/2025/07/compare_DDA_DA.html){:target="_blank"}**
 
 ---
 
@@ -9,7 +9,7 @@
 To generate the HTML file locally:
 
 1. **Install Subversion**
-   If you don't have Subversion (`svn`) installed, download it from [https://subversion.apache.org/packages.html](https://subversion.apache.org/packages.html).
+   If you don't have Subversion (`svn`) installed, download it from [https://subversion.apache.org/packages.html](https://subversion.apache.org/packages.html){:target="_blank"}.
 
 2. **Download the script and data**
    Run the following command in your terminal:
