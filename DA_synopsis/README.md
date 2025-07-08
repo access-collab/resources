@@ -1,6 +1,6 @@
 # Visual Comparison of the Draft Delegated Act on Data Access (DDA) vs. the Adopted Delegated Act (DA)
 
-**👉 [Click here to view the comparison](https://dsa40collaboratory.eu/wp-content/uploads/2025/07/compare_DDA_DA.html)**
+**👉 [Click here to view the comparison](https://dsa40collaboratory.eu/dda-da-comparison)**
 
 ## Credits and Citation
 
