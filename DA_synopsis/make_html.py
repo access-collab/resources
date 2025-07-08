@@ -17,21 +17,45 @@ def generate_diff_html(text1, text2):
             html += token[2:] + ' '
     return html
 
-def format_position(pos, para, label):
-    if not pos:
-        return "removed" if label == "DA" else ""
-    
+def format_plain_label(pos, para, label):
     if "Rec" in pos or "Art" in pos:
         formatted = f"{pos[:3]}. {pos[3:]}"
     else:
         formatted = pos
-    
+    parts = []
+    if pos:
+        parts.append(formatted)
     if para == "title":
-        formatted += " Title"
+        parts.append("Title")
     elif para:
-        formatted += f", paragraph {para}"
-    
-    return f"{formatted} {label}"
+        parts.append(f"paragraph {para}")
+    return f"{', '.join(parts)} {label}"
+
+def format_changed_label(dda_pos, dda_para, da_pos, da_para, label):
+    parts = []
+
+    # Format position
+    if "Rec" in da_pos or "Art" in da_pos:
+        formatted_pos = f"{da_pos[:3]}. {da_pos[3:]}"
+    else:
+        formatted_pos = da_pos
+
+    if da_pos != dda_pos:
+        formatted_pos = f'<span style="background-color: #fff3b0;">{formatted_pos}</span>'
+    parts.append(formatted_pos)
+
+    # Format paragraph
+    if da_para == "title":
+        parts.append("Title")
+    elif da_para:
+        if da_para != dda_para:
+            parts.append(f'<span style="background-color: #fff3b0;">paragraph {da_para}</span>')
+        else:
+            parts.append(f"paragraph {da_para}")
+
+    return f"{', '.join(parts)} {label}"
+
+
 
 
 # Load df
@@ -68,6 +92,29 @@ article_links = ", ".join(
     f'<a href="#{key}">{seen_articles[key]}</a>' for key in seen_articles
 )
 
+intro_html = """
+<div style="margin-bottom: 30px;">
+    <p>This document presents a comparison between the <strong>Draft Delegated Act on Data Access (DDA)</strong> (<a href="https://ec.europa.eu/info/law/better-regulation/have-your-say/initiatives/13817-Delegated-Regulation-on-data-access-provided-for-in-the-Digital-Services-Act_en" target="_blank">link to document</a>) and the <strong>Adopted Delegated Act (DA)</strong> (<a href="https://digital-strategy.ec.europa.eu/en/library/delegated-act-data-access-under-digital-services-act-dsa" target="_blank">link to document</a>).<br>Since it unilaterally compares the DDA with the DA, the Table of Contents only includes the original rectials and articles of the DDA. New recitals can be found under the <i>Recital 28</i> heading.</p>
+
+    <p>The highlighted colors indicate the following differences:<br><u>In the text:</u>
+    <ul>
+        <li><span style="background-color: #fbb6c2; padding: 2px 4px;">Red</span>: Text removed from the DDA</li>
+        <li><span style="background-color: #d4fcbc; padding: 2px 4px;">Green</span>: Text added in the DA</li>
+    </ul>
+    <u>In the headings:</u>
+    <ul>
+        <li><span style="background-color: #fff3b0; padding: 2px 4px;">Yellow</span>: Changes in references (e.g. article numbers and/or paragraph labels)</li>
+    </ul></p>
+    <br>
+    <p>The overview is based on work done by LK Seiling at the <a href="https://dsa40collaboratory.eu/" target="__blank">DSA40 Data Access Collaboratory</a>, who is responsible for splitting and aligning the texts to achieve a meaningful comparison. All data and the code on which this simple html page is based on, can be found at <a href="https://github.com/access-collab/resources/tree/main/DA_synopsis" target="__blank">https://github.com/access-collab/resources/tree/main/DA_synopsis</a>.</p>
+    <p><strong>Citation:</strong> If you wish to cite this comparison, please use the following format:</p>
+    <blockquote style="background-color: #f0f0f0; padding: 10px; border-left: 4px solid #999;">
+        LK Seiling (2025). Comparison of the Draft and Adopted Delegated Act on Data Access. <i>DSA 40 Data Access Collaboratory</i>. Available at: <a href="https://dsa40collaboratory.eu/dda-da-comparison/">https://dsa40collaboratory.eu/dda-da-comparison/</a>.
+    </blockquote>
+    <br>
+</div>
+"""
+
 toc_html = f"""
 <h2>Table of Contents</h2>
 <table class="toc" border="0" cellspacing="5" cellpadding="5">
@@ -90,13 +137,14 @@ html_output = f"""
         h2 {{ margin-top: 40px; }}
         table {{ border-collapse: collapse; }}
         th, td {{ padding: 8px 15px; text-align: left; }}
-        table.toc {{ table-layout: fixed; width: 85%; }}
+        table.toc {{ table-layout: fixed; width: 85%; margin-left: auto; margin-right: auto; display: table; }}
         table.toc th,
         table.toc td {{ width: 50%; vertical-align: top; word-wrap: break-word; }}
     </style>
 </head>
 <body>
-<h1>Comparison: Draft Delegated Act on Data Access (DDA) vs. Adopted Delegated Act on Data Access (DA)</h1>
+<h1>Comparison of the Draft and Adopted Delegated Act on Data Access</h1>
+{intro_html}
 {toc_html}
 """
 
@@ -111,12 +159,17 @@ for _, row in df.iterrows():
     text1 = str(row['text_DDA'])
     text2 = str(row['text_DA'])
     html_diff = generate_diff_html(text1, text2)
-    from_str = format_position(row['DDA_pos'], row['DDA_para'], "DDA")
-    to_str = format_position(row['DA_pos'], row['DA_para'], "DA")
 
-    dda_pos_lower = row['DDA_pos'].lower()
+    dda_pos, dda_para = row['DDA_pos'], row['DDA_para']
+    da_pos, da_para = row['DA_pos'], row['DA_para']
+    
+    
+    from_str = format_plain_label(dda_pos, dda_para, "DDA")
+    to_str = format_changed_label(dda_pos, dda_para, da_pos, da_para, "DA")
+
 
     # Insert subheadings
+    dda_pos_lower = da_pos.lower()
     if not expl_inserted and "exp" in dda_pos_lower:
         html_output += "<h2>Explanatory Memorandum</h2>\n"
         expl_inserted = True
@@ -148,7 +201,7 @@ for _, row in df.iterrows():
             <div class="header">{from_str} → {to_str}</div>
             <div>{html_diff}</div>
         </div>
-        """
+    """
 html_output += "</body></html>"
 
 # Write to file
