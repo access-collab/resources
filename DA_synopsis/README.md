@@ -2,6 +2,15 @@
 
 **👉 [Click here to view the comparison](https://dsa40collaboratory.eu/wp-content/uploads/2025/07/compare_DDA_DA.html)**
 
+## Credits and Citation
+
+The overview is based on work done by **LK Seiling** at the [DSA40 Data Access Collaboratory](https://dsa40collaboratory.eu/), who is responsible for splitting and aligning the texts to achieve a meaningful comparison. 
+
+**Citation:**  
+If you wish to cite this comparison, please use the following format:
+
+> **LK Seiling** (2025). Comparison of the Draft and Adopted Delegated Act on Data Access. *DSA 40 Data Access Collaboratory*. Available at: [https://dsa40collaboratory.eu/dda-da-comparison/](https://dsa40collaboratory.eu/dda-da-comparison/)
+
 ---
 
 ## Run Locally
