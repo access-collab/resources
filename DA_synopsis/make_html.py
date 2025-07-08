@@ -166,6 +166,12 @@ for _, row in df.iterrows():
     
     from_str = format_plain_label(dda_pos, dda_para, "DDA")
     to_str = format_changed_label(dda_pos, dda_para, da_pos, da_para, "DA")
+    if da_pos == "":
+        header_str = f"{from_str} → removed"
+    elif dda_pos == "":
+        header_str = f"→ {to_str}"
+    else:
+        header_str = f"{from_str} → {to_str}"
 
 
     # Insert subheadings
@@ -198,7 +204,7 @@ for _, row in df.iterrows():
     html_output += f"""
         {section_break_html}
         <div class="diff"{anchor_tag}>
-            <div class="header">{from_str} → {to_str}</div>
+            <div class="header">{header_str}</div>
             <div>{html_diff}</div>
         </div>
     """
