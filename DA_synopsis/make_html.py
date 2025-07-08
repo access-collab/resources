@@ -166,9 +166,9 @@ for _, row in df.iterrows():
     
     from_str = format_plain_label(dda_pos, dda_para, "DDA")
     to_str = format_changed_label(dda_pos, dda_para, da_pos, da_para, "DA")
-    if to_str == "DA":
+    if da_pos == "":
         header_str = f"{from_str} → removed"
-    elif from_str == "DDA":
+    elif dda_pos == "":
         header_str = f"→ {to_str}"
     else:
         header_str = f"{from_str} → {to_str}"
