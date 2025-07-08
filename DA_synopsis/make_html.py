@@ -7,11 +7,13 @@ def generate_diff_html(text1, text2):
     diff = difflib.ndiff(text1.split(), text2.split())
     html = ''
     for token in diff:
-        if token.startswith('+'):
+        if token.startswith('? '):
+            continue 
+        elif token.startswith('+ '):
             html += f'<span style="background-color: #d4fcbc;">{token[2:]}</span> '
-        elif token.startswith('-'):
+        elif token.startswith('- '):
             html += f'<span style="background-color: #fbb6c2;">{token[2:]}</span> '
-        else:
+        elif token.startswith('  '):
             html += token[2:] + ' '
     return html
 
@@ -129,7 +131,7 @@ for _, row in df.iterrows():
     section_break_html = ""
     section_label_html = ""
     
-    for pattern in [article_pattern, recital_pattern]:
+    for pattern in [art_pattern, rec_pattern]:
         match = pattern.search(row['DDA_pos'])
         if match:
             key = match.group()
