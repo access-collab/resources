@@ -48,6 +48,10 @@ _P_RE = re.compile(r"^(.+)_p(\d+)$")
 _H_RE = re.compile(r"^(.+)_h$")
 _U_RE = re.compile(r"^(.+)_u(\d+)$")
 _LIST_RE = re.compile(r"^(.+)\([a-z]\)$")
+_LIST_LABEL_RE = re.compile(r"^(.+)\(([a-z])\)$", re.I)
+_LIST_ITEM_START_RE = re.compile(r"^\([a-z]\)", re.I)
+_SLIGHT_EDIT_SIMILARITY = 0.85
+_UL_WRAP_RE = re.compile(r'^<ul class="md-list">(.*)</ul>$', re.DOTALL)
 
 
 def _clean(value: object) -> str:
@@ -129,6 +133,11 @@ def build_compare_header(row: pd.Series) -> str:
 
 def build_compare_body(row: pd.Series) -> str:
     t1, t2 = _clean(row["text_V1"]), _clean(row["text_V2"])
+    bt1 = _clean(row.get("block_type_v1", ""))
+    bt2 = _clean(row.get("block_type_v2", ""))
+    if "list" in {bt1, bt2}:
+        t1 = _ensure_list_markdown(t1)
+        t2 = _ensure_list_markdown(t2)
     if t1 and not t2:
         return render_markdown(t1, highlight="#fbb6c2")
     if t2 and not t1:
@@ -153,6 +162,207 @@ def section_for_row(row: pd.Series) -> str:
     return ""
 
 
+def list_parent(para: str) -> str:
+    match = _LIST_LABEL_RE.match(para)
+    return match.group(1) if match else ""
+
+
+def list_letter(para: str) -> str:
+    match = _LIST_LABEL_RE.match(para)
+    return match.group(2).lower() if match else ""
+
+
+def _ensure_list_markdown(text: str) -> str:
+    if not text.strip():
+        return text
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _LIST_ITEM_START_RE.match(stripped) and not line.startswith(" "):
+            lines.append(f"  {stripped}")
+        else:
+            lines.append(stripped)
+    return "\n".join(lines)
+
+
+def row_list_para(row: pd.Series) -> str:
+    for col in ("V1_para", "V2_para"):
+        para = _clean(row[col])
+        if _LIST_LABEL_RE.match(para):
+            return para
+    return _clean(row["V2_para"]) or _clean(row["V1_para"])
+
+
+def row_block_type(row: pd.Series) -> str:
+    return _clean(row.get("block_type_v2", "")) or _clean(row.get("block_type_v1", ""))
+
+
+def row_alignment_kind(row: pd.Series) -> str:
+    t1, t2 = _clean(row["text_V1"]), _clean(row["text_V2"])
+    if t1 and not t2:
+        return "v1_only"
+    if t2 and not t1:
+        return "v2_only"
+    return "paired"
+
+
+def is_list_row(row: pd.Series) -> bool:
+    bt1 = _clean(row.get("block_type_v1", ""))
+    bt2 = _clean(row.get("block_type_v2", ""))
+    if "list" not in {bt1, bt2}:
+        return False
+    v1_para = _clean(row["V1_para"])
+    v2_para = _clean(row["V2_para"])
+    if bt1 == "paragraph" and bt2 == "list" and not _LIST_LABEL_RE.match(v1_para):
+        return False
+    if bt2 == "paragraph" and bt1 == "list" and not _LIST_LABEL_RE.match(v2_para):
+        return False
+    return True
+
+
+def is_slight_edit(row: pd.Series) -> bool:
+    if row_alignment_kind(row) != "paired":
+        return False
+    sim = _clean(row.get("similarity", ""))
+    try:
+        return float(sim) >= _SLIGHT_EDIT_SIMILARITY
+    except ValueError:
+        return _clean(row.get("align_status", "")) == "exact"
+
+
+def _list_range_para(rows: list[pd.Series], side: str) -> str:
+    col = f"{side}_para"
+    parent = ""
+    letters: list[str] = []
+    for row in rows:
+        para = _clean(row[col])
+        if not para:
+            continue
+        parent = parent or list_parent(para)
+        letter = list_letter(para)
+        if letter:
+            letters.append(letter)
+    if not parent or not letters:
+        return row_list_para(rows[0])
+    if letters[0] == letters[-1]:
+        return f"{parent}({letters[0]})"
+    return f"{parent}({letters[0]})–({letters[-1]})"
+
+
+def can_extend_list_group(group: list[pd.Series], row: pd.Series) -> bool:
+    if not is_list_row(row):
+        return False
+    last = group[-1]
+    if section_for_row(row) != section_for_row(last):
+        return False
+    if row_block_type(row) != row_block_type(last):
+        return False
+    parent = list_parent(row_list_para(last))
+    if not parent or list_parent(row_list_para(row)) != parent:
+        return False
+
+    group_kind = row_alignment_kind(group[0])
+    row_kind = row_alignment_kind(row)
+    if row_kind != group_kind:
+        return False
+    if row_kind in {"v1_only", "v2_only"}:
+        return True
+    return is_slight_edit(row) and all(is_slight_edit(item) for item in group)
+
+
+def group_comparison_rows(df: pd.DataFrame) -> list[list[pd.Series]]:
+    groups: list[list[pd.Series]] = []
+    current: list[pd.Series] = []
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            groups.append(current)
+            current = []
+
+    for _, row in df.iterrows():
+        if current and can_extend_list_group(current, row):
+            current.append(row)
+        elif is_list_row(row):
+            flush()
+            current = [row]
+        else:
+            flush()
+            groups.append([row])
+
+    flush()
+    return groups
+
+
+def _unwrap_md_list(fragment: str) -> str:
+    fragment = fragment.strip()
+    match = _UL_WRAP_RE.match(fragment)
+    return match.group(1) if match else fragment
+
+
+def build_combined_list_body(rows: list[pd.Series]) -> str:
+    items = [_unwrap_md_list(build_compare_body(row)) for row in rows]
+    return f'<ul class="md-list">{"".join(items)}</ul>'
+
+
+def build_combined_list_header(rows: list[pd.Series]) -> str:
+    first, last = rows[0], rows[-1]
+    v1_pos, v2_pos = _clean(first["V1_pos"]), _clean(last["V2_pos"]) or _clean(last["V1_pos"])
+    bt1 = _clean(first.get("block_type_v1", ""))
+    bt2 = _clean(last.get("block_type_v2", "")) or _clean(last.get("block_type_v1", ""))
+    v1_para = _list_range_para(rows, "V1")
+    v2_para = _list_range_para(rows, "V2")
+
+    all_v2_only = all(not _clean(row["text_V1"]) for row in rows)
+    all_v1_only = all(not _clean(row["text_V2"]) for row in rows)
+
+    if all_v2_only:
+        para_label = format_para(v2_para, bt2)
+        if any(_clean(row["V1_para"]) and _clean(row["V2_para"]) and _clean(row["V1_para"]) != _clean(row["V2_para"]) for row in rows):
+            para_label = f'<span class="ref-changed">{para_label}</span>'
+        section = SECTION_NAMES.get(v2_pos, v2_pos or "—")
+        return f'→ {section}, {para_label} (v2) (new in v2)'
+
+    if all_v1_only:
+        para_label = format_para(v1_para, bt1)
+        section = SECTION_NAMES.get(v1_pos, v1_pos or "—")
+        return f"{section}, {para_label} (v1) → removed in v2"
+
+    from_str = format_side_label(v1_pos, v1_para, bt1, "v1")
+    to_str = format_changed_label(v1_pos, v1_para, v2_pos, v2_para, bt1, bt2, "v2")
+    if any(
+        _clean(row["V1_para"]) and _clean(row["V2_para"]) and _clean(row["V1_para"]) != _clean(row["V2_para"])
+        for row in rows
+    ):
+        to_para_label = format_para(v2_para, bt2)
+        section = SECTION_NAMES.get(v2_pos, v2_pos or "—")
+        if v2_pos and v1_pos and v2_pos != v1_pos:
+            section = f'<span class="ref-changed">{section}</span>'
+        to_str = f"{section}, <span class=\"ref-changed\">{to_para_label}</span> (v2)"
+    return f"{from_str} → {to_str}"
+
+
+def compare_group_body_class(rows: list[pd.Series]) -> str:
+    if all(not _clean(row["text_V1"]) for row in rows):
+        return "subsection-body block-new-v2"
+    if all(not _clean(row["text_V2"]) for row in rows):
+        return "subsection-body block-removed-v1"
+    return "subsection-body"
+
+
+def render_compare_group(group: list[pd.Series]) -> tuple[str, str, str]:
+    if len(group) >= 2 and all(is_list_row(row) for row in group):
+        return (
+            build_combined_list_header(group),
+            compare_group_body_class(group),
+            build_combined_list_body(group),
+        )
+    row = group[0]
+    return build_compare_header(row), compare_body_class(row), build_compare_body(row)
+
+
 def build_comparison_html(df: pd.DataFrame) -> tuple[str, str]:
     present_sections = []
     seen: set[str] = set()
@@ -170,6 +380,7 @@ def build_comparison_html(df: pd.DataFrame) -> tuple[str, str]:
 
     intro = """
 <div class="intro">
+    <h3>This overview is based on <a class="link-on-white" href="">Guidance for Vetted Researcher Data Access</a> provided by Coimisiún na Meán (the Irish Digital Service Coordinator).</h3>
     <p>This view compares <strong>guidance v1</strong>
     (20 February 2026; <em>Guidance for Applicants</em>)
     with <strong>guidance v2</strong>
@@ -188,8 +399,8 @@ def build_comparison_html(df: pd.DataFrame) -> tuple[str, str]:
     parts = [intro, f'<h2 class="panel-toc">Table of Contents</h2><p class="panel-toc-links">{toc_links}</p>']
     added_anchors: set[str] = set()
 
-    for _, row in df.iterrows():
-        anchor_pos = section_for_row(row)
+    for group in group_comparison_rows(df):
+        anchor_pos = section_for_row(group[0])
         if anchor_pos and anchor_pos not in added_anchors:
             section_label = SECTION_NAMES.get(anchor_pos, anchor_pos)
             parts.append(
@@ -197,10 +408,11 @@ def build_comparison_html(df: pd.DataFrame) -> tuple[str, str]:
             )
             added_anchors.add(anchor_pos)
 
+        header, body_class, body = render_compare_group(group)
         parts.append(
             f'<div class="diff">'
-            f'<div class="header">{build_compare_header(row)}</div>'
-            f'<div class="{compare_body_class(row)}">{build_compare_body(row)}</div>'
+            f'<div class="header">{header}</div>'
+            f'<div class="{body_class}">{body}</div>'
             f"</div>"
         )
 
@@ -287,6 +499,13 @@ STYLES = """
             border-radius: 6px;
             border-left: 4px solid var(--accent);
         }
+        .intro h3 {
+            font-size: 1.05em;
+            font-weight: 600;
+            margin: 0 0 0.75em;
+            line-height: 1.4;
+        }
+        .intro .link-on-white { color: var(--accent); }
         .intro ul { margin: 0.5em 0; padding-left: 1.4em; }
         .swatch {
             display: inline-block;
